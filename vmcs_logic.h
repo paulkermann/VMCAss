@@ -27,8 +27,8 @@ int vmclear_success = 0;
 int vmwrite_success = 0;
 int vmread_success = 0;
 int vmlaunch_success = 0;
-char *vmxon_region;
-char *vmcs_guest_region;
+char *vmxon_region = NULL;
+char *vmcs_guest_region = NULL;
 
 void* vmxon_phy_region = 0;
 void* vmcs_phy_region = 0;
@@ -644,12 +644,12 @@ static int vmxon_init(void)
             printk(L"[i] MSR 0x3A: Lock bit is on. VMXON bit is on. OK\n");
         } else
         {
-            printk(L"[i] MSR 0x3A: Lock bit is on. VMXON bit is off. No VME :(\n");
+            printk(L"[x] MSR 0x3A: Lock bit is on. VMXON bit is off. No VME :(\n");
             goto finish_here;
         }
     } else
     {
-        printk(L"[i] MSR 0x3A: Lock bit is not on. Not doing anything."
+        printk(L"[x] MSR 0x3A: Lock bit is not on. Not doing anything."
                "You should activate VT-x.\n");
         goto finish_here;
     }

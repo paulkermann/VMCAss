@@ -15,7 +15,7 @@ void* allocate_alligned_physical_page() {
   EFI_PHYSICAL_ADDRESS address = 0;
   EFI_STATUS result = uefi_call_wrapper(gBS->AllocatePages, 4, AllocateAnyPages, EfiReservedMemoryType, 1, &address);
   if (result != EFI_SUCCESS){
-    printk(L"Allocate pages failed with result: %d", result);
+    printk(L"Allocate pages failed with result: %d\n", result);
     return 0;
   }
 
@@ -25,7 +25,7 @@ void* allocate_alligned_physical_page() {
 void free_physical_page(void* physical_address){
   EFI_STATUS result = uefi_call_wrapper(gBS->FreePages, 2, physical_address, 1);
   if (result != EFI_SUCCESS){
-    printk(L"failed FreePages: %d", result);
+    printk(L"failed FreePages: %d\n", result);
   }
 }
 
