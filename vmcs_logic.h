@@ -10,6 +10,12 @@
 #define IA32_VMX_PROCBASED_CTLS_MSR 0x482
 #define IA32_VMX_PROCBASED_CTLS2_MSR 0x48B
 #define IA32_VMX_TRUE_PROCBASED_CTLS_MSR 0x48E
+
+#define IA32_VMX_CR0_FIXED0 0x486
+#define IA32_VMX_CR0_FIXED1 0x487
+#define IA32_VMX_CR4_FIXED0 0x488
+#define IA32_VMX_CR4_FIXED1 0x489
+
 #define CPUID_VMX_BIT 5
 #define NOTFOUND 0xFFFFFFFF
 
@@ -60,6 +66,25 @@ void* phy_regions[MAX_REGIONS];
 #define MY_VMX_VMCALL           ".byte 0x0f, 0x01, 0xc1"
 #define MY_HLT                  ".byte 0xf4"
 
+uint64_t adjust_cr0_value(uint64_t old_cr0_value){
+    uint64_t fixed0_cr0_flags = do_rdmsr(IA32_VMX_CR0_FIXED0);
+    uint64_t fixed1_cr0_flags = do_rdmsr(IA32_VMX_CR0_FIXED1);
+    uint64_t new_cr0_value = old_cr0_value;
+    new_cr0_value &= fixed1_cr0_flags;
+    new_cr0_value |= fixed0_cr0_flags;
+
+    return new_cr0_value;
+}
+
+uint64_t adjust_cr4_value(uint64_t old_cr4_value){
+    uint64_t fixed0_cr4_flags = do_rdmsr(IA32_VMX_CR4_FIXED0);
+    uint64_t fixed1_cr4_flags = do_rdmsr(IA32_VMX_CR4_FIXED1);
+    uint64_t new_cr4_value = old_cr4_value;
+    new_cr4_value &= fixed1_cr4_flags;
+    new_cr4_value |= fixed0_cr4_flags;
+
+    return new_cr4_value;
+}
 
 static void display_brand(){
 	uint32_t brand[12];
@@ -314,7 +339,7 @@ static void discover_vmcs(void)
 
         if (vmread_success == 0)
         {
-            printk(L"   # %a\tINVALID_FIELD\n", current_field.field_name);
+            printk(L"[x]   # %a\tINVALID_FIELD\n", current_field.field_name);
             continue;
         }
 
@@ -329,7 +354,7 @@ static void discover_vmcs(void)
             // present on a microarchitecture, so you usually get a value of 0
             // for fields that are not valid.
             // TODO: Consider confirming these cases with a vmwrite that fails.
-            printk(L"   # %s reported being at offset %d which is impossible\n",
+            printk(L"[x]   # %s reported being at offset %d which is impossible\n",
                    current_field.field_name, field_index);
             continue;
         }
@@ -341,11 +366,11 @@ static void discover_vmcs(void)
         if ( field_index > 0x1000)
         {
             // !!WARNING!! HACK HACK HACK for values not aligned to 2.
-            printk(L"   # %a\t%d\tMISALIGNED\n",
+            printk(L"[x]   # %a\t%d\tMISALIGNED\n",
                    current_field.field_name, field_index);
             field_index = (((field_index & 0xFF00) >> 8)
                            | ((field_index & 0x00FF) << 8)) - 1;
-            printk(L"   # %a\t%d\tFIXED\n",
+            printk(L"[i]   # %a\t%d\tFIXED\n",
                    current_field.field_name, field_index);
         }
 
@@ -354,7 +379,7 @@ static void discover_vmcs(void)
             // This is outside the range of the VMCS guest region. Cannot be
             // valid or it was written to between our initialization and the
             // discovery code :(
-            printk(L"   # %a\t%d\tOFFBOUNDS\n", current_field.field_name,
+            printk(L"[x]   # %a\t%d\tOFFBOUNDS\n", current_field.field_name,
                    field_index);
             continue;
         }
@@ -433,11 +458,11 @@ static void discover_vmcs(void)
             if (result == field_index)
                 validated = 1;
             else
-                printk(L"   # reported_index = %X | found_index = %X\n",
+                printk(L"[i]   # reported_index = %X | found_index = %X\n",
                        field_index, result);
         }
 
-        printk(L"%a;%d;%a\n", current_field.field_name, field_index, field_datatype);
+        printk(L"[v]%a;%d;%a\n", current_field.field_name, field_index, field_datatype);
     }
 }
 
@@ -475,22 +500,19 @@ static void deallocate_vmcs_region(void)
 
 static void turn_on_vmxe(void)
 {
-    asm volatile("push %rax\n"
-                 "movq %cr4, %rax\n"
-                 "bts $13, %rax\n"
-                 "movq %rax, %cr4\n"
-                 "pop %rax\n");
-    printk(L"[i] turned on cr4.vmxe\n");
+    printk(L"[i] Turning on cr4.vmxe. Old cr4 value: 0x%llx\n", read_cr4());
+    uint64_t cr4 = read_cr4();
+    cr4 |= 0x2000;
+    write_cr4(cr4);
+    printk(L"[i] Turned on cr4.vmxe. New cr4 value: 0x%llx\n", read_cr4());
 }
 
 static void turn_off_vmxe(void)
 {
-    asm volatile("push %rax\n"
-                 "movq %cr4, %rax\n"
-                 "btr $13, %rax\n"
-                 "movq %rax, %cr4\n"
-                 "pop %rax\n");
-    printk(L"[i] turned off cr4.vmxe\n");
+    uint64_t cr4 = read_cr4();
+    cr4 &= ~0x2000;
+    write_cr4(cr4);
+    printk(L"[i] Turned off cr4.vmxe\n");
 }
 
 inline void store_rflags(void)
@@ -504,13 +526,13 @@ inline void store_rflags(void)
 
 static void print_vmerror(void)
 {
-    printk(L"   # Error code: %llX\n", vmread(INSTR_ERROR));
-    printk(L"   # RFLAGS: 0x%lX\n", rflags_value);
+    printk(L"[x]   # Error code: %llX\n", vmread(INSTR_ERROR));
+    printk(L"[x]   # RFLAGS: 0x%lX\n", rflags_value);
 }
 
 /*do vmptrld*/
 static void vmptrld(void** region) {
-    printk(L"[i] Attempting vmptrld(0x%lX) ... ", (long int)*region);
+    printk(L"[i] Attempting vmptrld(0x%lX) ... ", *region);
     asm volatile(MY_VMX_VMPTRLD_RAX
                  :
 		 : "a"(region), "m"(*region)
@@ -670,6 +692,15 @@ static int vmxon_init(void)
     memcpy(vmxon_region, &vmx_rev_id, 4);  // copy revision id to vmxon region
 
     turn_on_vmxe();
+
+    printk(L"[i] Before adjusted cr4 value: %llx\n", read_cr4());
+    write_cr4(adjust_cr4_value(read_cr4()));
+    printk(L"[i] After adjusted cr4 value: %llx\n", read_cr4());
+
+    printk(L"[i] Before adjusted cr0 value: %llx\n", read_cr0());
+    write_cr0(adjust_cr0_value(read_cr0()));
+    printk(L"[i] After adjusted cr0 value: %llx\n", read_cr0());
+
     vmxon();
     printk(L"[i] After vmxon function\n");
     if (!vmxon_success)

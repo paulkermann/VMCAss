@@ -21,6 +21,13 @@ void free_physical_page(void* physical_address);
 
 uint64_t do_rdmsr(uint32_t msr);
 
+uint64_t read_cr4();
+
+void write_cr4(uint64_t value);
+
+uint64_t read_cr0();
+
+void write_cr0(uint64_t value);
 
 #define ENOMEM 5
 
