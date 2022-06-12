@@ -671,11 +671,13 @@ static int vmxon_init(void)
 
     turn_on_vmxe();
     vmxon();
+    printk(L"[i] After vmxon function\n");
     if (!vmxon_success)
     {
         deallocate_vmxon_region();
         goto finish_here;
     }
+    printk(L"[i] just before allocate_vmcs_region function\n");
     allocate_vmcs_region();
 
     if (vmcs_guest_region == NULL)
